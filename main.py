@@ -5,7 +5,6 @@ import string
 from urllib.parse import urljoin
 
 # Constants
-#http://dosen.unand.ac.id/web/pencarian?cari=A&act=dir&page=9
 BASE_URL = "http://dosen.unand.ac.id/web/pencarian?cari={atoz}&act=dir"
 TIMEOUT = 30
 HEADERS = {
@@ -14,47 +13,53 @@ HEADERS = {
 
 # Function to extract and clean text from an element
 def extract_text(element):
-    if element:
-        return element.text.strip()
-    return ''
+    return element.text.strip() if element else ''
 
-def extract_pagination(element,url):
+def extract_pagination(element, base_url):
     try:
-        return [urljoin(url,page['href']) for page in element.find_all('a', href=True)]
+        return [urljoin(base_url, page['href']) for page in element.find_all('a', href=True)]
     except:
         return []
-    
-def extract_table(element,url):
+
+def extract_table(element, base_url):
     result = []
     for tr in element.find('tbody').find_all('tr'):
-        result.append(urljoin(url,tr.find('a',href=True)['href']))
+        result.append(urljoin(base_url, tr.find('a', href=True)['href']))
     return result
 
-def extract_personal(element,url):
-    #for i,tr in enumerate(element.find('table', {'id':'w1'}).find_all('tr')):
-    #    print(i,tr.text.split('\n'))
-    nama, nip, nidn, jenis_kelamin, status, jabatan, unit, fakultas, pangkat, pendidikan_terakhir = [tr.text.split('\n')[1].strip() for tr in element.find('table', {'id':'w1'}).find_all('tr')]
-    print(nama, url, nip, nidn, jenis_kelamin, status, jabatan, unit, fakultas, pangkat, pendidikan_terakhir)
+def extract_personal_info(element, url):
+    info_table = element.find('table', {'id': 'w1'})
+    nama, nip, nidn, jenis_kelamin, status, jabatan, unit, fakultas, pangkat, pendidikan_terakhir = [tr.text.split('\n')[1].strip() for tr in info_table.find_all('tr')]
     return [nama, url, nip, nidn, jenis_kelamin, status, jabatan, unit, fakultas, pangkat, pendidikan_terakhir]
 
 s = requests.Session()
 
-# Fetch the HTML content
+# Open a CSV file for writing
 with open('data_dosen_unand.csv', 'w', newline='') as f:
     writer = csv.writer(f)
     header = ['Nama', 'URL', 'NIP', 'NIDN', 'Jenis Kelamin', 'Status', 'Jabatan', 'Unit', 'Fakultas', 'Pangkat/Golongan', 'Pendidikan Terakhir']
     writer.writerow(header)
+
     for atoz in string.ascii_uppercase:
-        url = f"{BASE_URL}"
-        html = s.get(f"http://dosen.unand.ac.id/web/pencarian?cari={atoz}&act=dir", timeout=TIMEOUT, headers=HEADERS).content
+        url = BASE_URL.format(atoz=atoz)
+        html = s.get(url, timeout=TIMEOUT, headers=HEADERS).content
         soup = bs(html, 'html.parser')
-        for page in extract_pagination(soup.find('ul', class_='pagination'),url)[:-1]:
-            html_= s.get(page,timeout=TIMEOUT, headers=HEADERS).content
-            soup_= bs(html_, 'html.parser')
-            for profile_page in extract_table(soup_,page):
-                html__= s.get(profile_page,timeout=TIMEOUT, headers=HEADERS).content
-                soup__= bs(html__, 'html.parser')  
-                row = extract_personal(soup__,profile_page)
+
+        # Extract pagination links for the current letter
+        pagination_links = extract_pagination(soup.find('ul', class_='pagination'), url)[:-1]
+
+        for page in pagination_links:
+            html_ = s.get(page, timeout=TIMEOUT, headers=HEADERS).content
+            soup_ = bs(html_, 'html.parser')
+
+            # Extract profile links from the current page
+            profile_links = extract_table(soup_, page)
+
+            for profile_page in profile_links:
+                html__ = s.get(profile_page, timeout=TIMEOUT, headers=HEADERS).content
+                soup__ = bs(html__, 'html.parser')
+                row = extract_personal_info(soup__, profile_page)
+
                 if row:
                     writer.writerow(row)
                     f.flush()
